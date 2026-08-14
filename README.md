@@ -14,9 +14,13 @@ DSH Web GUI 的局域网访问插件（带口令的全功能版 + 独立远程�
 
 > 💡 **最简单的安装方式：告诉DSH，安装 dsh-LAN 插件。**
 
+<div align="center">
+
 ![局域网口令设置](docs/局域网口令设置.png)
 
 <img src="docs/手机端展示.jpg" alt="手机端展示" width="50%">
+
+</div>
 
 ## ⚠️ 安全说明
 
