@@ -1,0 +1,24 @@
+# dsh-LAN bundle patch — applies when the package is installed as a profile
+# bundle (`dsh plugin --profile web add <this package>`).
+#
+# The patch-path installer (install.ps1) writes equivalent entries into the
+# profile's own cordis.patch.yml instead; install via ONE of the two paths,
+# never both (a duplicate `webserver` override and a duplicate `dsh-lan` row
+# would collide).
+
+# Default the Web GUI bind host to all interfaces. An explicit `--host` flag
+# still wins; the command-line guard that rejects `--host 0.0.0.0` stays
+# intact, so deliberate exposure happens through this configuration layer.
+- id: webserver
+  config:
+    host: !!js ctx.webStartup.host ?? '0.0.0.0'
+    port: !!js ctx.webStartup.port ?? 3080
+
+# The dual-face plugin row: the node half (lib/index.js) mounts on the host
+# plane, and the `dsh.client` declaration in package.json makes the modules
+# row serve /plugins/dsh-lan/client.js to browsers.
+- insert:
+    - id: dsh-lan
+      name: 'dsh-LAN'
+      config:
+        profile: web

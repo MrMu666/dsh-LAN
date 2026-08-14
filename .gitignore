@@ -1,0 +1,22 @@
+# ---- Node.js ----
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.iml
+
+# ---- 临时文件 ----
+*.tmp
+*~
+*.bak
+*.orig
