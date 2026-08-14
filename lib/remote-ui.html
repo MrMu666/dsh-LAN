@@ -181,6 +181,11 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
 .msg.assistant .mdli::before{content:"•";position:absolute;left:2px;color:var(--dim)}
 .msg.assistant .mdq{color:var(--dim);border-left:2px solid var(--line);padding-left:8px;margin:2px 0}
 .msg.assistant .mdc{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;overflow-x:auto;margin:4px 0}
+.msg.assistant .mdtw{overflow-x:auto;margin:4px 0;-webkit-overflow-scrolling:touch}
+.msg.assistant .mdt{border-collapse:collapse;width:max-content;min-width:100%;font-size:13px}
+.msg.assistant .mdt th,.msg.assistant .mdt td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
+.msg.assistant .mdt th{background:var(--code-bg);font-weight:600}
+.msg.assistant .mdt td{background:var(--panel)}
 .msg.assistant .ic{font-family:ui-monospace,Consolas,monospace;background:var(--code-bg);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:12px}
 .msg.assistant a{color:var(--accent);text-decoration:underline}
 
@@ -473,6 +478,37 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     return t;
   }
+  // GFM table helpers: `| a | b |` header + `|---|---|` separator + data rows.
+  function tableCells(line) {
+    let s = String(line).trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+    const cells = [];
+    let buf = "";
+    for (let k = 0; k < s.length; k++) {
+      if (s[k] === "\\" && s[k + 1] === "|") { buf += "|"; k++; continue; }
+      if (s[k] === "|") { cells.push(buf.trim()); buf = ""; continue; }
+      buf += s[k];
+    }
+    cells.push(buf.trim());
+    return cells;
+  }
+  function isTableSep(line) {
+    const s = String(line).trim();
+    return s.includes("|") && s.includes("-") && /^[\s|:-]+$/.test(s);
+  }
+  function isTableRow(line) {
+    return String(line).includes("|") && !isTableSep(line);
+  }
+  function tableAlign(sep) {
+    const s = String(sep).trim();
+    const left = s.startsWith(":");
+    const right = s.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return "";
+  }
   function renderMarkdown(text) {
     const frag = document.createDocumentFragment();
     const lines = String(text).replace(/\r\n/g, "\n").split("\n");
@@ -491,6 +527,16 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
         blocks.push({ code: code.join("\n") });
         continue;
       }
+      if (i + 1 < lines.length && isTableRow(lines[i]) && isTableSep(lines[i + 1])) {
+        flush();
+        const head = tableCells(lines[i]);
+        const aligns = tableCells(lines[i + 1]).map(tableAlign);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && isTableRow(lines[i])) { rows.push(tableCells(lines[i])); i++; }
+        blocks.push({ table: { head, aligns, rows } });
+        continue;
+      }
       cur.push(lines[i]);
       i++;
     }
@@ -501,6 +547,39 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
         pre.className = "mdc";
         pre.textContent = b.code;
         frag.appendChild(pre);
+        continue;
+      }
+      if (typeof b === "object" && b.table) {
+        const wrap = document.createElement("div");
+        wrap.className = "mdtw";
+        const tbl = document.createElement("table");
+        tbl.className = "mdt";
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        b.table.head.forEach((h, idx) => {
+          const th = document.createElement("th");
+          if (b.table.aligns[idx]) th.style.textAlign = b.table.aligns[idx];
+          th.innerHTML = inlineMd(h);
+          hr.appendChild(th);
+        });
+        thead.appendChild(hr);
+        tbl.appendChild(thead);
+        if (b.table.rows.length) {
+          const tbody = document.createElement("tbody");
+          for (const row of b.table.rows) {
+            const tr = document.createElement("tr");
+            row.forEach((c, idx) => {
+              const td = document.createElement("td");
+              if (b.table.aligns[idx]) td.style.textAlign = b.table.aligns[idx];
+              td.innerHTML = inlineMd(c);
+              tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+          }
+          tbl.appendChild(tbody);
+        }
+        wrap.appendChild(tbl);
+        frag.appendChild(wrap);
         continue;
       }
       const para = document.createElement("div");
@@ -621,6 +700,14 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   }
 
   async function boot() {
+    // v40: return-to-tab recovery — timers freeze and the WebSocket dies
+    // silently while backgrounded; catch up + settle indicators on return
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") onForeground();
+    });
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted) onForeground(); // bfcache restore — JS was frozen
+    });
     applyTheme(currentTheme());
     refreshThemeButtons();
     for (const id of ["login-theme", "ws-theme", "chat-theme"]) {
@@ -1007,6 +1094,8 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   let wsRetry = null;
   let hadWsOnce = false;   // first-connect status message only
   let pollTimer = null;
+  let lastFrameAt = 0;     // last WS frame timestamp (stale-connection watchdog)
+  let wsWatchdogTimer = null;
   let statTimer = null;
   let working = false;     // turn in progress (breathing indicator + stop btn)
   let workingTimer = null;
@@ -1204,9 +1293,12 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     const d = ev.data || {};
     if (t === "user/message") {
       // user messages arrive as user/message (there is no user/text); skip
-      // internal system-reminder steering so it never shows as a user bubble
+      // host-internal steering so it never shows as a user bubble: the
+      // system-reminder marker (v11) and the runtime-context snapshot the
+      // host injects as its own user/message before each turn (v41)
       const text = userMessageText(d);
       if (text.includes("<system-reminder>")) return;
+      if (/^Current runtime context\./i.test(text.trimStart())) return;
       const last = arr[arr.length - 1];
       if (last && last.kind === "user" && last.optimistic === true && last.text === text) {
         // the streamed echo of our optimistic bubble — adopt it
@@ -1552,6 +1644,8 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     closeWs();
     try {
       ws = new WebSocket("ws://" + location.host + "/api/events.mux");
+      lastFrameAt = Date.now();   // fresh socket — restart the staleness window
+      startWsWatchdog();
       ws.onopen = () => {
         if (!hadWsOnce) {
           hadWsOnce = true;
@@ -1561,6 +1655,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
       ws.onmessage = (msg) => {
         try {
           const wire = JSON.parse(msg.data);
+          lastFrameAt = Date.now(); // any frame proves the socket is alive
           // wire envelope: {type:"server-request", rpcId, method, payload}
           // the inner payload carries the session event (session/event,
           // session/subscribed, session/queue, …) or an answerable/push
@@ -1570,24 +1665,28 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
             if (frame.type === "session/event") {
               applyLiveEvent(frame);
             } else if (frame.type === "session/subscribed") {
-              // carries the session's current lastSeq — lets a cache hit skip
-              // any history download when the cache is already up-to-date
+              // carries the session's current lastSeq — a cache hit can skip
+              // the download when already current, and a RECONNECT detects the
+              // gap of events missed while the WS was down and bridges it with
+              // the same incremental catch-up (v40: not gated on pendingCacheSync)
               if (current && frame.sessionId === current.sessionId) {
+                const hadPending = pendingCacheSync;
                 subscribedSeq = frame.lastSeq;
-                if (pendingCacheSync) {
+                if (hadPending) {
                   pendingCacheSync = false;
                   if (pendingCacheTimer !== null) { clearTimeout(pendingCacheTimer); pendingCacheTimer = null; }
-                  if (frame.lastSeq > seenSeq) {
-                    setSyncHint("正在同步新内容…");
-                    const sid = current.sessionId;
-                    void syncHistory(sid, { quiet: false }).then((bridged) => {
-                      if (!current || current.sessionId !== sid) return; // switched away
-                      saveCache(sid, events, seenSeq);
-                      setSyncHint(bridged ? null : "已显示最新消息，更早内容点顶部按钮加载");
-                    });
-                  } else {
-                    setSyncHint(null); // cache already current — zero download
-                  }
+                }
+                if (frame.lastSeq > seenSeq) {
+                  if (!hadPending) setSyncHint("正在同步新内容…");
+                  const sid = current.sessionId;
+                  void syncHistory(sid, { quiet: false }).then((bridged) => {
+                    if (!current || current.sessionId !== sid) return; // switched away
+                    saveCache(sid, events, seenSeq);
+                    setSyncHint(bridged ? null : "已显示最新消息，更早内容点顶部按钮加载");
+                    settleWorkingState(sid);
+                  });
+                } else if (hadPending) {
+                  setSyncHint(null); // cache already current — zero download
                 }
               }
             } else if (frame.type === "session/projection") {
@@ -1625,6 +1724,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   }
   function closeWs() {
     if (current && events.length > 0) saveCache(current.sessionId, events, seenSeq);
+    stopWsWatchdog();
     if (ws) { try { ws.close(); } catch (e) {} ws = null; }
     if (wsRetry !== null) { clearTimeout(wsRetry); wsRetry = null; }
     stopPolling();
@@ -1641,6 +1741,81 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   }
   function stopPolling() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  // ── stale-connection watchdog + foreground recovery (v40) ────────────────
+  // Mobile browsers suspend background tabs: timers freeze and the WebSocket
+  // often dies silently (half-open, no close frame) or closes unnoticed. The
+  // polling fallback only starts on onclose, so a half-open socket leaves the
+  // page with NO data path at all — the UI freezes mid-turn forever. The
+  // watchdog force-rebuilds a socket silent for too long, and the
+  // visibilitychange hook forces a catch-up + indicator settle on return.
+  function startWsWatchdog() {
+    stopWsWatchdog();
+    wsWatchdogTimer = setInterval(() => {
+      if (!current || ws === null) return;          // nothing to watch
+      if (Date.now() - lastFrameAt < WS_STALE_MS) return;
+      // half-open: no frames for WS_STALE_MS — rebuild so onclose → retry +
+      // polling kick in; restart polling directly in case the close event
+      // never fires on this platform
+      appendStatus("实时连接已断开，正在重新连接…");
+      try { ws.close(); } catch (e) {}
+      ws = null;
+      scheduleWsRetry();
+      startPolling();
+    }, WS_WATCHDOG_MS);
+  }
+  function stopWsWatchdog() {
+    if (wsWatchdogTimer !== null) { clearInterval(wsWatchdogTimer); wsWatchdogTimer = null; }
+  }
+  function onForeground() {
+    // the user returned to the tab after a background period — the live
+    // stream may be gone or half-open, and events may have been missed
+    if (!current) return;                           // not inside a chat view
+    const sid = current.sessionId;
+    if (ws !== null && Date.now() - lastFrameAt > WS_STALE_MS) {
+      // half-open socket left over from the backgrounded period — rebuild
+      try { ws.close(); } catch (e) {}
+      ws = null;
+    }
+    if (ws === null) {
+      appendStatus("回到前台，正在重新连接…");
+      openWs();
+    }
+    lastFrameAt = Date.now();                       // fresh socket must not be killed early
+    if (subscribedSeq < 0 || subscribedSeq > seenSeq) {
+      // events may have been missed while backgrounded — bridge them
+      void syncHistory(sid, { quiet: true }).then((bridged) => {
+        if (!current || current.sessionId !== sid) return;
+        saveCache(sid, events, seenSeq);
+        if (!bridged) setSyncHint("已显示最新消息，更早内容点顶部按钮加载");
+        settleWorkingState(sid);
+      });
+    } else {
+      settleWorkingState(sid);
+    }
+  }
+  function settleWorkingState(sid) {
+    // After a catch-up, a turn that actually finished server-side must not
+    // leave the "thinking" visuals hanging (breathing dot, locked controls) —
+    // those normally end on a live turn/end, which was missed while the page
+    // was backgrounded. Settle only when the server has no more events than
+    // we saw AND no new frames arrive shortly (a genuinely running turn keeps
+    // streaming reasoning-delta frames and re-lights the indicator).
+    setTimeout(() => {
+      if (!current || current.sessionId !== sid) return;
+      if (!working) return;
+      if (subscribedSeq < 0 || subscribedSeq > seenSeq) return; // more events pending
+      if (Date.now() - lastFrameAt < 1500) return;              // frames still flowing
+      const last = events[events.length - 1];
+      if (last && last.kind === "assistant") {
+        last.reasonLive = false;
+        last.open = false;
+        last.live = false;
+      }
+      setWorking(false);
+      renderTimeline();
+    }, 2000);
   }
 
   // ── conversation cache (localStorage) + incremental history sync ────────
@@ -1661,6 +1836,8 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   const MAX_COMPACT = 4000;             // compact timeline entry cap (memory/dom)
   const MAX_RENDER = 1500;              // entries rendered per timeline pass
   const FETCH_TIMEOUT = 20000;          // history RPC timeout (ms)
+  const WS_STALE_MS = 20000;            // no WS frames this long → half-open
+  const WS_WATCHDOG_MS = 10000;         // stale-connection check interval
   let cacheDirty = false;
   let oldestSeq = 0;                    // smallest seq present in the timeline
   let olderMore = false;                // older pages exist (show "load older")
@@ -1674,6 +1851,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   let subscribedSeq = -1;               // lastSeq from the mux session/subscribed frame
   let pendingCacheSync = false;         // cache hit → awaiting subscribed before sync
   let pendingCacheTimer = null;
+  let syncPromise = null;               // in-flight syncHistory (dedupe concurrent calls)
 
   function cacheKey(sessionId) { return CACHE_PREFIX + sessionId; }
 
@@ -2037,7 +2215,11 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     return { pages: pagesArr, total, hasMore, projections };
   }
 
-  async function syncHistory(sessionId, opts) {
+  function syncHistory(sessionId, opts) {
+    // concurrent callers (subscribed catch-up, poll fallback, foreground
+    // recovery) share one in-flight run instead of racing each other
+    if (syncPromise) return syncPromise;
+    syncPromise = (async () => {
     // Incremental catch-up from the current seenSeq: fetch the tail page,
     // then bridge older pages (beforeSeq) until a page reaches back to the
     // cached position. Pages arrive newest-page-first with ascending seqs
@@ -2117,6 +2299,8 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     // Page budget exhausted without bridging — same as the event-cap case.
     applyCollected(true);
     return false;
+    })().finally(() => { syncPromise = null; });
+    return syncPromise;
   }
 
   async function loadOlder() {
