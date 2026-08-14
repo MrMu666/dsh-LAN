@@ -54,6 +54,7 @@ a{color:var(--accent);text-decoration:none}
 header{display:flex;align-items:center;gap:8px;padding:10px 10px;background:var(--panel);border-bottom:1px solid var(--line);flex:none}
 header h1{font-size:15px;margin:0;flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 header button{padding:8px 11px;min-height:36px;white-space:nowrap}
+#lock-btn{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:600}
 
 #ws-list,#sess-list{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .card{display:flex;align-items:center;gap:10px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);cursor:pointer;min-width:0}
@@ -1650,6 +1651,8 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
         if (!hadWsOnce) {
           hadWsOnce = true;
           appendStatus("已连接实时同步");
+        } else {
+          appendStatus("实时连接已恢复");
         }
       };
       ws.onmessage = (msg) => {
@@ -1750,10 +1753,13 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   // page with NO data path at all — the UI freezes mid-turn forever. The
   // watchdog force-rebuilds a socket silent for too long, and the
   // visibilitychange hook forces a catch-up + indicator settle on return.
+  // v42: the watchdog only runs while a turn is in flight (working) — an idle
+  // session legitimately sends no frames, so staleness is only meaningful
+  // when the turn should be streaming.
   function startWsWatchdog() {
     stopWsWatchdog();
     wsWatchdogTimer = setInterval(() => {
-      if (!current || ws === null) return;          // nothing to watch
+      if (!current || ws === null || !working) return; // idle turns push no frames
       if (Date.now() - lastFrameAt < WS_STALE_MS) return;
       // half-open: no frames for WS_STALE_MS — rebuild so onclose → retry +
       // polling kick in; restart polling directly in case the close event
@@ -1836,7 +1842,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   const MAX_COMPACT = 4000;             // compact timeline entry cap (memory/dom)
   const MAX_RENDER = 1500;              // entries rendered per timeline pass
   const FETCH_TIMEOUT = 20000;          // history RPC timeout (ms)
-  const WS_STALE_MS = 20000;            // no WS frames this long → half-open
+  const WS_STALE_MS = 30000;            // no WS frames this long → half-open
   const WS_WATCHDOG_MS = 10000;         // stale-connection check interval
   let cacheDirty = false;
   let oldestSeq = 0;                    // smallest seq present in the timeline
