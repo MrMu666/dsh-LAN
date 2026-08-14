@@ -1,6 +1,6 @@
 # dsh-LAN
 
-DSH Web GUI 的局域网访问插件（带口令的全功能版 + 独立远程界面）。
+[deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Web GUI 的局域网访问插件（带口令的全功能版 + 独立远程界面）。
 
 > 🚀 **配合 [DSH-Launcher](https://github.com/MrMu666/DSH-Launcher) 使用，体验感更好。**
 

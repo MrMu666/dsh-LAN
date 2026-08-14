@@ -1,6 +1,6 @@
 # dsh-LAN
 
-dsh-LAN — a plugin that brings the DSH Web GUI to your local network (password-protected full-featured edition + a standalone remote UI).
+dsh-LAN — a plugin that brings the [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Web GUI to your local network (password-protected full-featured edition + a standalone remote UI).
 
 > 🚀 **Pair it with [DSH-Launcher](https://github.com/MrMu666/DSH-Launcher) for a better experience.**
 
