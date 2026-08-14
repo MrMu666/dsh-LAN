@@ -65,7 +65,16 @@ $content = [regex]::Replace($content, "`r?`n?$([regex]::Escape($toggleBegin))[\s
 # strip a pre-plugin hand-written webserver override (this plugin owns the row now)
 $content = [regex]::Replace($content, "`r?`n?- id: webserver`r?`n  config:`r?`n    host:[^\r\n]*`r?`n    port:[^\r\n]*", "`n")
 
-$content = $content.TrimEnd() + "`n`n" + $installBlock + "`n"
+# The fresh-profile template ends with a standalone empty-array placeholder
+# `[]`. Remove it (and only it — never a `config: []` value) so the install
+# block entries become the top-level array instead of being appended after a
+# stray `[]` (which would make the YAML unparseable).
+$content = $content.TrimEnd()
+if ($content.EndsWith("`n[]") -or $content -eq "[]") {
+	$content = $content.Substring(0, $content.Length - 2).TrimEnd()
+}
+
+$content = $content + "`n`n" + $installBlock + "`n"
 [System.IO.File]::WriteAllText($patchFile, $content, (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "dsh-LAN installed:"

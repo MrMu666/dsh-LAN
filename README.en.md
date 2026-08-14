@@ -2,7 +2,7 @@
 
 dsh-LAN — a plugin that brings the DSH Web GUI to your local network (password-protected full-featured edition + a standalone remote UI).
 
-Once installed, the Web GUI binds to `0.0.0.0` (all network interfaces) by default and automatically adds a Windows Firewall allow rule (Domain + Private):
+Once installed, the Web GUI binds to `0.0.0.0` (all network interfaces) by default and automatically opens the host firewall port (Windows: Windows Defender Firewall Domain + Private; Linux: firewalld / ufw / iptables are tried in order, and a missing firewall tool is treated as "no rule needed"):
 
 - ✅ **LAN devices must enter a password before seeing any page**: Desktop browsers opening `http://<host-ip>:3080` get a full-screen login gate first; mobile devices (phones/tablets) should open **`http://<host-ip>:3080/dsh-lan/ui`** — the plugin's standalone remote UI (login → workspaces → session list → chat/history/file records/model switching/new session with mode), all synced with the host in real time
 - ✅ **Remember password (per device)**: Checking "Remember password" at login stores the password in that browser's localStorage, so the next visit skips it; otherwise it is kept only in the current tab (sessionStorage) and expires when the tab closes
@@ -41,16 +41,35 @@ Once installed, the Web GUI binds to `0.0.0.0` (all network interfaces) by defau
 
 ## Installation (patch path, no restart required — recommended)
 
-> ⚠️ The current installation method works on **Windows 11 only** (it relies on PowerShell scripts and `netsh advfirewall` firewall commands).
+### Windows 11
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
+# optional:
+powershell -ExecutionPolicy Bypass -File install.ps1 -DshHome C:\Users\me\.dsh -Profile web
 ```
 
-- The plugin package is copied to `%USERPROFILE%\.dsh\profiles\node_modules\dsh-LAN`
-- The install block is written to `%USERPROFILE%\.dsh\profiles\web\cordis.patch.yml` (bind 0.0.0.0 + plugin mount line)
+### Linux / macOS
+
+```bash
+./install.sh
+# optional:
+./install.sh --dsh-home "$HOME/.dsh" --profile web
+# the DSH_HOME environment variable is also honored (same as dsh)
+```
+
+The installers (equivalent on both platforms):
+
+- copy the plugin package to `<DSH_HOME>/profiles/node_modules/dsh-LAN` (on Windows: `%USERPROFILE%\.dsh\profiles\node_modules\dsh-LAN`)
+- write the install block to `<DSH_HOME>/profiles/web/cordis.patch.yml` (bind 0.0.0.0 + plugin mount line)
 - **DSH hot-reloads profile patches**: the running service picks it up immediately, no restart needed; just refresh the browser to see the settings card
 - **Restart `dsh web` after upgrading plugin code**: the node half (`lib/index.js`) lives in process memory and hot reload only reloads the patch layer; the client bundle is picked up by refreshing the browser
+
+### Firewall notes
+
+- **Windows**: a Windows Defender Firewall allow rule (Domain + Private) is maintained automatically; without an elevated shell the settings card reports "firewall blocked (needs admin)".
+- **Linux**: an allow rule is maintained via firewalld → ufw → iptables (first available). When no supported firewall tool is found the card reports "firewall not managed", which normally means the port is already reachable. If a firewall is detected but root is missing, it reports that admin rights are needed.
+- On every platform, turning the "LAN access" toggle off falls back to binding `127.0.0.1` — that is the primary security switch.
 
 ### Installation (bundle path, optional)
 
@@ -69,8 +88,17 @@ The package declares `dsh.bundle.patch`, so `dsh plugin` automatically adds it t
 
 ## Uninstall
 
+Windows:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File uninstall.ps1
+```
+
+Linux / macOS:
+
+```bash
+./uninstall.sh
+# optional: ./uninstall.sh --dsh-home "$HOME/.dsh" --profile web --port 3080
 ```
 
 Removes the patch block, firewall rules, and the package copy; takes effect via hot reload, no restart needed.

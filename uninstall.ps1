@@ -22,6 +22,11 @@ if (Test-Path $patchFile) {
 	$content = Get-Content $patchFile -Raw
 	$content = [regex]::Replace($content, "`r?`n?$([regex]::Escape($installBegin))[\s\S]*?$([regex]::Escape($installEnd))`r?`n?", "`n")
 	$content = [regex]::Replace($content, "`r?`n?$([regex]::Escape($toggleBegin))[\s\S]*?$([regex]::Escape($toggleEnd))`r?`n?", "`n")
+	# If only comments/whitespace remain, restore a valid empty array so the
+	# profile still parses as a top-level YAML array (an empty or comment-only
+	# file would make the loader throw).
+	$meaningful = (($content -split "`r?`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" -and -not $_.StartsWith("#") }) -join "`n"
+	if ($meaningful -eq "") { $content = "[]" }
 	[System.IO.File]::WriteAllText($patchFile, $content.TrimEnd() + "`n", (New-Object System.Text.UTF8Encoding($false)))
 }
 

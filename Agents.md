@@ -1471,3 +1471,59 @@ inject 正是 `["slots", "locale", "connection"]`。web 端 38 个内置插件�
 
 - 只改 `lib/client.js` + `package.json`（客户端 bundle）→ **无需重启 dsh web**，
   浏览器强制刷新即可（rev 可能不变，必要时 Ctrl+F5）。
+
+---
+
+# v38 修改记录：加入 Linux 支持（跨平台防火墙 + install.sh/uninstall.sh）
+
+> 来源：另一台电脑更新的版本（`dsh-LAN-加入linux版`），在 v37 基础上增量加入
+> Linux 支持。Agents.md / package.json / cordis.patch.yml / .gitignore 与当前
+> 完全一致（SHA256 核对），确认同源，可直接整体采纳变更文件。
+
+## 修改 1 — 跨平台防火墙后端（`lib/index.js`）
+
+- netsh 专有逻辑重构为后端抽象：Windows = netsh（行为与旧版一致）；
+  Linux 按 **firewalld → ufw → iptables** 顺序探测（`spawnTool` 统一封装
+  spawnSync，20s 超时；`toolAvailable` 用 `--version` 探测）：
+  - firewalld：`firewall-cmd --permanent --query/--add/--remove-port <port>/tcp` + `--reload`；
+  - ufw：`allow/delete allow <port>/tcp`，`ruleExists` 解析 `ufw status` 的
+    `<port>/tcp ALLOW` 正则；
+  - iptables：`INPUT -p tcp --dport <port> -j ACCEPT` 的 `-C/-A/-D`。
+- **无可用防火墙工具**（桌面发行版/容器常见）→ 视为无需放行：
+  `firewallSummary` 返回 `{ok:true, managed:false, note:"no supported firewall detected"}`，
+  `ensure/removeFirewallRule` 直接返回 true。
+- `/dsh-lan/status` 新增字段：`firewallManaged`、`firewallNote`（后端名）、
+  `platform`；激活对齐逻辑补充：LAN 关闭时也主动 `removeFirewallRule(port)`。
+
+## 修改 2 — 设置卡片状态行（`lib/client.js`）
+
+- `firewallManaged === false` → 显示新词条 `firewall.na`
+  「防火墙未由插件管理（未检测到受支持的防火墙）」（zh/en）；受管理时沿用
+  ok/bad 并在括号里附后端名（`(netsh)` / `(firewalld)` …）。
+- 路径占位符补充 Linux 示例 `/home/name`（桌面选择器 client.js + 移动端
+  remote-ui.html 两处）。
+
+## 修改 3 — 安装/卸载脚本
+
+- `install.ps1`：处理全新 profile 模板末尾的独立 `[]` 占位符——仅当内容以
+  `[]` 结尾时移除（绝不碰 `config: []` 值），否则安装块追加在 `[]` 后会让
+  YAML 不可解析。
+- `uninstall.ps1`：块删除后若只剩注释/空白，恢复合法的 `[]` 空数组
+  （空/纯注释文件会让 loader 抛错）。
+- **新增 `install.sh` / `uninstall.sh`**（Linux/macOS）：与 PowerShell 版等价
+  （补丁块改写用 Node 保证字节一致），参数 `--dsh-home/--profile/--port` +
+  `DSH_HOME` 环境变量；安装时剥离 installers 与 `.git`；卸载时 best-effort
+  清理防火墙规则（firewalld/ufw/iptables 各试一遍，全 `|| true`）。
+
+## 验证
+
+- `node --check`（index.js / client.js）PASS；`bash -n`（install.sh /
+  uninstall.sh）PASS。
+- 9 个变更文件（lib/*3 + install.ps1/uninstall.ps1 + install.sh/uninstall.sh +
+  README.md/README.en.md）与下载版 **SHA256 逐一一致**。
+- 安装副本同步：`lib/*`、README 两份、Agents.md（含本记录）。
+
+## 部署注意（v38）
+
+- **node half（lib/index.js）改动 → 需要重启 dsh web 才生效**（防火墙后端在
+  进程内存中）；客户端（client.js / remote-ui.html）刷新浏览器即可。

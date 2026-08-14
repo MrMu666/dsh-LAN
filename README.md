@@ -2,7 +2,7 @@
 
 DSH Web GUI 的局域网访问插件（带口令的全功能版 + 独立远程界面）。
 
-安装后，Web GUI 默认绑定 `0.0.0.0`（所有网卡），并自动添加 Windows 防火墙放行规则（Domain + Private）：
+安装后，Web GUI 默认绑定 `0.0.0.0`（所有网卡），并自动放行主机防火墙端口（Windows：Windows Defender 防火墙 Domain + Private；Linux：依次尝试 firewalld / ufw / iptables，无可用防火墙工具时视为无需放行）：
 
 - ✅ **局域网设备先输口令才能看页面**：桌面端浏览器打开 `http://<本机IP>:3080` 会先显示全屏登录门；移动端（手机/平板）请打开 **`http://<本机IP>:3080/dsh-lan/ui`** —— 插件自带的独立远程界面（登录 → 工作区 → 会话列表 → 聊天/历史对话/文件记录/模型切换/新建会话选模式），所有内容与主机实时同步
 - ✅ **记住口令（本机）**：登录时勾选「记住口令」，口令保存在该设备浏览器 localStorage，下次打开免输；不勾选则只保存在当前标签页（sessionStorage），关闭即失效
@@ -41,16 +41,35 @@ DSH Web GUI 的局域网访问插件（带口令的全功能版 + 独立远程�
 
 ## 安装（补丁路径，无需重启，推荐）
 
-> ⚠️ 当前安装方式仅限 **Windows 11** 下使用（依赖 PowerShell 脚本与 netsh 防火墙命令）。
+### Windows 11
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
+# 可选参数：
+powershell -ExecutionPolicy Bypass -File install.ps1 -DshHome C:\Users\me\.dsh -Profile web
 ```
 
-- 插件包被复制到 `%USERPROFILE%\.dsh\profiles\node_modules\dsh-LAN`
-- 安装块写入 `%USERPROFILE%\.dsh\profiles\web\cordis.patch.yml`（绑定 0.0.0.0 + 挂载插件行）
+### Linux / macOS
+
+```bash
+./install.sh
+# 可选参数：
+./install.sh --dsh-home "$HOME/.dsh" --profile web
+# 也可通过环境变量 DSH_HOME 指定（与 dsh 一致）
+```
+
+安装脚本（两个平台等价）会：
+
+- 把插件包复制到 `<DSH_HOME>/profiles/node_modules/dsh-LAN`（Windows 为 `%USERPROFILE%\.dsh\profiles\node_modules\dsh-LAN`）
+- 把安装块写入 `<DSH_HOME>/profiles/web/cordis.patch.yml`（绑定 0.0.0.0 + 挂载插件行）
 - **DSH 对 profile 补丁是热加载的**：运行中的服务立即生效，无需重启；刷新浏览器即可看到设置页卡片
 - **升级插件代码后需重启 `dsh web`**：node 半边（`lib/index.js`）在进程内存中，热加载只重载补丁层；客户端 bundle 刷新浏览器即可拿到新版
+
+### 防火墙说明
+
+- **Windows**：自动维护 Windows Defender 防火墙放行规则（Domain + Private）；未以管理员身份运行时，设置页会提示「防火墙未放行（需管理员权限）」。
+- **Linux**：自动检测并按 firewalld → ufw → iptables 的顺序维护放行规则；检测不到受支持的防火墙工具时，状态显示「防火墙未由插件管理」，此时端口通常本就无需放行。若检测到防火墙但无 root 权限，同样会提示需要管理员权限。
+- 无论哪个平台，关闭「局域网访问」开关都会把绑定回退到 `127.0.0.1`，这是最根本的安全开关。
 
 ### 安装（bundle 路径，可选）
 
@@ -69,8 +88,17 @@ dsh plugin --profile web add link:<本目录绝对路径>
 
 ## 卸载
 
+Windows：
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File uninstall.ps1
+```
+
+Linux / macOS：
+
+```bash
+./uninstall.sh
+# 可选：./uninstall.sh --dsh-home "$HOME/.dsh" --profile web --port 3080
 ```
 
 移除补丁块、防火墙规则与包副本；热加载生效，无需重启。
