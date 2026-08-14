@@ -2,6 +2,8 @@
 
 DSH Web GUI 的局域网访问插件（带口令的全功能版 + 独立远程界面）。
 
+> 🚀 **配合 [DSH-Launcher](https://github.com/MrMu666/DSH-Launcher) 使用，体验感更好。**
+
 安装后，Web GUI 默认绑定 `0.0.0.0`（所有网卡），并自动放行主机防火墙端口（Windows：Windows Defender 防火墙 Domain + Private；Linux：依次尝试 firewalld / ufw / iptables，无可用防火墙工具时视为无需放行）：
 
 - ✅ **局域网设备先输口令才能看页面**：桌面端浏览器打开 `http://<本机IP>:3080` 会先显示全屏登录门；移动端（手机/平板）请打开 **`http://<本机IP>:3080/dsh-lan/ui`** —— 插件自带的独立远程界面（登录 → 工作区 → 会话列表 → 聊天/历史对话/文件记录/模型切换/新建会话选模式），所有内容与主机实时同步

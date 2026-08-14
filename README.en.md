@@ -2,6 +2,8 @@
 
 dsh-LAN — a plugin that brings the DSH Web GUI to your local network (password-protected full-featured edition + a standalone remote UI).
 
+> 🚀 **Pair it with [DSH-Launcher](https://github.com/MrMu666/DSH-Launcher) for a better experience.**
+
 Once installed, the Web GUI binds to `0.0.0.0` (all network interfaces) by default and automatically opens the host firewall port (Windows: Windows Defender Firewall Domain + Private; Linux: firewalld / ufw / iptables are tried in order, and a missing firewall tool is treated as "no rule needed"):
 
 - ✅ **LAN devices must enter a password before seeing any page**: Desktop browsers opening `http://<host-ip>:3080` get a full-screen login gate first; mobile devices (phones/tablets) should open **`http://<host-ip>:3080/dsh-lan/ui`** — the plugin's standalone remote UI (login → workspaces → session list → chat/history/file records/model switching/new session with mode), all synced with the host in real time
