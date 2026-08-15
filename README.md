@@ -18,7 +18,7 @@
 
 ![局域网口令设置](docs/局域网口令设置.png)
 
-<img src="docs/手机端展示.jpg" alt="手机端展示" width="50%">
+<img src="docs/手机端展示.png" alt="手机端展示" width="50%">
 
 </div>
 

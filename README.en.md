@@ -18,7 +18,7 @@ Once installed, the Web GUI binds to `0.0.0.0` (all network interfaces) by defau
 
 ![LAN password settings](docs/局域网口令设置.png)
 
-<img src="docs/手机端展示.jpg" alt="Mobile UI" width="50%">
+<img src="docs/手机端展示.png" alt="Mobile UI" width="50%">
 
 </div>
 
