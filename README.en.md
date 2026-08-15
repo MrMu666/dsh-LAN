@@ -33,6 +33,13 @@ Once installed, the Web GUI binds to `0.0.0.0` (all network interfaces) by defau
 - Mobile **reuses the official desktop UI** — there is no standalone remote UI anymore (v48 removed `/dsh-lan/ui`). When a phone opens `http://<host-ip>:3080` in portrait, the plugin injects a touch adaptation over the official interface (compact sidebar rail, ≥44px touch targets, 16px input font to prevent iOS focus zoom, safe-area padding); landscape/wide viewports revert automatically.
 - Every capability is identical to desktop: sessions/workspaces/history/live chat/model & mode switching/todo list/approvals & questions/permission switching, all synced with the host in real time.
 
+### Mobile interaction details
+
+- **Sidebar**: hidden while collapsed — the draggable **whale button** at the top-left is the entry point (its drag position is remembered). Tapping a session row, tapping anywhere else, or **swiping left** collapses it; in the conversation view **swiping right** expands the sidebar directly.
+- **Keyboard**: the page never auto-focuses the composer on load, tapping the whale does not pop the keyboard, and Enter inserts a newline only (sending goes through the send button).
+- **UI details**: lingering official Tooltip bubbles are hidden (e.g. collapse/send black tooltips); the `ask_user_question` card is fully adapted to narrow screens (42px option touch targets); the permission/model two-line layout and the bottom stats bar stay aligned with the composer.
+- **LAN privileged channel**: privileged calls pinned to localhost by the official client (settings/credentials…) are rewritten to the `/lanapi` password channel at the network layer — preset/permission labels now show their localized names on LAN devices.
+
 ## Installation (patch path, no restart required — recommended)
 
 ### Windows 11
