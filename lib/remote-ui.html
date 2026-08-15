@@ -1095,11 +1095,11 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   let wsRetry = null;
   let hadWsOnce = false;   // first-connect status message only
   let pollTimer = null;
+  let runningTimer = null; // session.list running watch (stop-btn authority)
   let lastFrameAt = 0;     // last WS frame timestamp (stale-connection watchdog)
   let wsWatchdogTimer = null;
   let statTimer = null;
   let working = false;     // turn in progress (breathing indicator + stop btn)
-  let workingTimer = null;
   let stopping = false;    // stop requested — suppress working=true until turn/end
   let pinned = true;       // auto-follow the bottom while streaming
 
@@ -1123,7 +1123,6 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     // while a stop is in flight, ignore re-lights from late in-flight events
     // (chunks/tool calls that raced the cancel request)
     if (v && stopping) return;
-    if (workingTimer !== null) { clearTimeout(workingTimer); workingTimer = null; }
     working = v;
     // send button ⇄ stop button (both rounded-square icon buttons)
     const sb = $("send-btn");
@@ -1248,6 +1247,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     }
     openWs();
     startStatTimer();
+    startRunningWatch();
     void refreshStatBar();
     void loadModelLabel();
     // any pending approval/question for this session (e.g. mux replay after
@@ -1345,11 +1345,12 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
         const last = arr[arr.length - 1];
         if (last && last.kind === "assistant") { last.open = false; last.reasonLive = false; }
       } else if (c.type === "finish") {
-        // a step's stream ended — settle the working indicator shortly
-        if (live) {
-          if (workingTimer !== null) clearTimeout(workingTimer);
-          workingTimer = setTimeout(() => { setWorking(false); }, 1200);
-        }
+        // a step's stream ended — nothing to do. The working indicator must
+        // stay lit until turn/end: after a job-output step the tool can run
+        // silently for a long time with NO frames at all (measured 90s+), so
+        // any "settle after a delay" here would flip the stop button back to
+        // send mid-task (v44 — replaces the old 1.2s delayed working=false,
+        // which v14 only patched for the tool/call race).
       }
       // tool-call-delta / usage carry no render impact here
     } else if (t === "turn/start") {
@@ -1732,6 +1733,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     if (wsRetry !== null) { clearTimeout(wsRetry); wsRetry = null; }
     stopPolling();
     stopStatTimer();
+    stopRunningWatch();
   }
   function startPolling() {
     if (pollTimer || !current) return;
@@ -1829,6 +1831,42 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
         renderTimeline();
       }).catch(() => {}); // query failed — leave the indicator as-is
     }, 2000);
+  }
+  // ── running watch (v45): the stop button mirrors the server-side `running`
+  // flag — the same signal that lights the breathing green dot on the session
+  // and workspace lists. Whatever the event stream does (silent job output,
+  // reconnects, missed turn/end), this periodic calibration guarantees the
+  // button shows STOP while the server says the turn is in flight, and flips
+  // back to send shortly after the turn truly ends.
+  function startRunningWatch() {
+    stopRunningWatch();
+    runningTimer = setInterval(() => {
+      if (!current) return;
+      const sid = current.sessionId;
+      void api("session.list", {}).then((data) => {
+        if (!current || current.sessionId !== sid) return; // switched away
+        const items = (data && data.items) || [];
+        const s = items.find((x) => x.sessionId === sid);
+        if (!s) return; // unknown — leave the indicator as-is
+        if (s.running) {
+          // server says the turn is in flight — force the stop button on
+          setWorking(true);
+        } else if (working) {
+          // server confirms idle — settle any hanging working state
+          const last = events[events.length - 1];
+          if (last && last.kind === "assistant") {
+            last.reasonLive = false;
+            last.open = false;
+            last.live = false;
+          }
+          setWorking(false);
+          renderTimeline();
+        }
+      }).catch(() => {}); // query failed — leave the indicator as-is
+    }, 4000);
+  }
+  function stopRunningWatch() {
+    if (runningTimer !== null) { clearInterval(runningTimer); runningTimer = null; }
   }
 
   // ── conversation cache (localStorage) + incremental history sync ────────
@@ -2650,6 +2688,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
   let mProvider = "";
   let mModel = "";
   let mEffort = "";
+  let mEffortTouched = false;  // user picked an effort — preferred must not overwrite it
   let currentModelLabel = "模型…";
 
   async function openModelsSheet() {
@@ -2659,6 +2698,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
       modelData = await api("session.models", { sessionId: current.sessionId });
       mProvider = modelData.current.provider;
       mModel = modelData.current.model;
+      mEffortTouched = false;   // (re)open the sheet — re-init from current/default
       currentModelLabel = modelLabelFrom(modelData);
       $("sb-model").textContent = currentModelLabel;
       renderModelSheet();
@@ -2694,7 +2734,7 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
         const d = document.createElement("span"); d.className = "md"; d.textContent = model.description;
         b.appendChild(d);
       }
-      b.addEventListener("click", () => { mModel = model.id; renderModelSheet(); });
+      b.addEventListener("click", () => { mModel = model.id; mEffortTouched = false; renderModelSheet(); });
       mc.appendChild(b);
     }
     // level 3: effort chips
@@ -2703,15 +2743,20 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     if (efforts.length === 0) { er.classList.add("hidden"); return; }
     er.classList.remove("hidden");
     er.textContent = "";
-    const preferred = (modelData.current.provider === mProvider && modelData.current.model === mModel)
-      ? modelData.current.reasoningEffort
-      : (group?.models || []).find((x) => x.id === mModel)?.reasoning?.defaultEffort;
-    if (preferred) mEffort = preferred;
+    // preferred (current effort or the model's default) initializes the
+    // selection ONLY until the user picks an effort themselves — otherwise
+    // every re-render would overwrite the user's choice (v46)
+    if (!mEffortTouched) {
+      const preferred = (modelData.current.provider === mProvider && modelData.current.model === mModel)
+        ? modelData.current.reasoningEffort
+        : (group?.models || []).find((x) => x.id === mModel)?.reasoning?.defaultEffort;
+      if (preferred) mEffort = preferred;
+    }
     for (const eff of efforts) {
       const b = document.createElement("button");
       b.className = "chip" + (eff.id === mEffort ? " on" : "");
       b.textContent = eff.name || eff.id;
-      b.addEventListener("click", () => { mEffort = eff.id; renderModelSheet(); });
+      b.addEventListener("click", () => { mEffort = eff.id; mEffortTouched = true; renderModelSheet(); });
       er.appendChild(b);
     }
   }
