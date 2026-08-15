@@ -1805,22 +1805,29 @@ header.chat-head .head-sub #perm-btn{flex:none;min-width:0;padding:0 8px;text-al
     // After a catch-up, a turn that actually finished server-side must not
     // leave the "thinking" visuals hanging (breathing dot, locked controls) —
     // those normally end on a live turn/end, which was missed while the page
-    // was backgrounded. Settle only when the server has no more events than
-    // we saw AND no new frames arrive shortly (a genuinely running turn keeps
-    // streaming reasoning-delta frames and re-lights the indicator).
+    // was backgrounded. The authoritative signal is the session list's
+    // `running` flag — the exact same server-side state that drives the
+    // breathing green dot on the session/workspace lists. A turn streaming
+    // job output stays `running` server-side, so the stop button must keep
+    // showing stop; only a server-confirmed idle turn is settled.
     setTimeout(() => {
       if (!current || current.sessionId !== sid) return;
       if (!working) return;
-      if (subscribedSeq < 0 || subscribedSeq > seenSeq) return; // more events pending
-      if (Date.now() - lastFrameAt < 1500) return;              // frames still flowing
-      const last = events[events.length - 1];
-      if (last && last.kind === "assistant") {
-        last.reasonLive = false;
-        last.open = false;
-        last.live = false;
-      }
-      setWorking(false);
-      renderTimeline();
+      if (subscribedSeq < 0 || subscribedSeq > seenSeq) return; // not fully caught up
+      void api("session.list", {}).then((data) => {
+        if (!current || current.sessionId !== sid) return; // switched away meanwhile
+        const items = (data && data.items) || [];
+        const s = items.find((x) => x.sessionId === sid);
+        if (!s || s.running) return; // still running (or unknown) — keep working
+        const last = events[events.length - 1];
+        if (last && last.kind === "assistant") {
+          last.reasonLive = false;
+          last.open = false;
+          last.live = false;
+        }
+        setWorking(false);
+        renderTimeline();
+      }).catch(() => {}); // query failed — leave the indicator as-is
     }, 2000);
   }
 
