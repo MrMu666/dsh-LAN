@@ -19,7 +19,8 @@
         "slots",
         "locale",
         "connection",
-        "workspaces"
+        "workspaces",
+        "layout"
       ],
       "platform": "web"
     }
