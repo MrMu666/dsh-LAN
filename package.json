@@ -1,6 +1,6 @@
 {
   "name": "dsh-LAN",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "DSH Web GUI LAN access plugin: bind 0.0.0.0, manage the firewall rule, and a password-gated /lanapi proxy that re-exposes loopback-pinned settings/credential operations to LAN browsers. UI toggle card in General settings.",
   "type": "module",
   "main": "lib/index.js",
