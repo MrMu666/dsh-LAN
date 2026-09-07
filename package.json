@@ -26,7 +26,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-host-apiproxy": "*"
+    "@deepseek-ai/dsh-client-connection": "*"
   },
   "license": "MIT"
 }
