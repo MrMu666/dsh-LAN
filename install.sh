@@ -93,6 +93,81 @@ fs.mkdirSync(path.dirname(DSH_LAN_PATCH_FILE), { recursive: true });
 fs.writeFileSync(DSH_LAN_PATCH_FILE, content.trimEnd() + "\n\n" + installBlock + "\n");
 NODE
 
+# ── optional LAN enable + password setup (English prompts only) ─────────────
+# Ask whether LAN access should be on right away and, if so, set the password
+# (entered twice, hidden). The password file is written with Node using the
+# exact salt/hash scheme of lib/index.js, so no shell-encoding pitfalls.
+LAN_STATE_FILE="$DSH_HOME/dsh-lan.json"
+LAN_CHOICE=""
+
+if [[ -t 0 ]]; then
+	read -r -p "Enable LAN access now? [Y/n]: " LAN_CHOICE || LAN_CHOICE=""
+else
+	echo "Non-interactive install: LAN stays enabled, password unchanged (set it later in Settings > General)."
+fi
+
+if [[ "$LAN_CHOICE" =~ ^[Nn] ]]; then
+	# Pin the GUI back to loopback: append the toggle block the plugin manages
+	# (the install step above stripped any previous one, so this is fresh).
+	export DSH_LAN_PATCH_FILE
+	node <<'NODE'
+	const fs = require("node:fs");
+	const { DSH_LAN_TOGGLE_BEGIN, DSH_LAN_TOGGLE_END, DSH_LAN_PATCH_FILE } = process.env;
+	const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	let content = fs.existsSync(DSH_LAN_PATCH_FILE) ? fs.readFileSync(DSH_LAN_PATCH_FILE, "utf8") : "";
+	content = content.replace(new RegExp(`\\r?\\n?${escapeRegex(DSH_LAN_TOGGLE_BEGIN)}[\\s\\S]*?${escapeRegex(DSH_LAN_TOGGLE_END)}\\r?\\n?`, "g"), "\n");
+	const toggleBlock =
+		"\n" + DSH_LAN_TOGGLE_BEGIN + "\n" +
+		"- id: webserver\n" +
+		"  config:\n" +
+		"    host: '127.0.0.1'\n" +
+		"    port: !!js ctx.webStartup.port ?? 3080\n" +
+		DSH_LAN_TOGGLE_END + "\n";
+	fs.writeFileSync(DSH_LAN_PATCH_FILE, content.trimEnd() + "\n\n" + toggleBlock + "\n");
+NODE
+	echo "LAN access left disabled (loopback only). You can enable it later in Settings > General."
+elif [[ -t 0 ]]; then
+	while true; do
+		LAN_PW1=""; LAN_PW2=""
+		read -r -s -p "Enter LAN password (min 4 chars, hidden): " LAN_PW1 || break
+		echo
+		read -r -s -p "Enter LAN password again: " LAN_PW2 || break
+		echo
+		if [[ -z "$LAN_PW1" ]]; then echo "Password cannot be empty; try again."; continue; fi
+		if [[ "${#LAN_PW1}" -lt 4 ]]; then echo "Password too short (min 4 chars); try again."; continue; fi
+		if [[ "$LAN_PW1" != "$LAN_PW2" ]]; then echo "Passwords do not match; try again."; continue; fi
+		break
+	done
+	if [[ -n "${LAN_PW1:-}" && "$LAN_PW1" == "${LAN_PW2:-}" && "${#LAN_PW1}" -ge 4 ]]; then
+		export DSH_LAN_STATE_FILE="$LAN_STATE_FILE" DSH_LAN_PASSWORD="$LAN_PW1"
+		node <<'NODE'
+	const fs = require("node:fs");
+	const path = require("node:path");
+	const crypto = require("node:crypto");
+	const file = process.env.DSH_LAN_STATE_FILE;
+	const password = process.env.DSH_LAN_PASSWORD ?? "";
+	if (password.length < 4) { console.error("dsh-LAN install: password too short"); process.exit(1); }
+	let state = {};
+	try {
+		const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+		if (parsed !== null && typeof parsed === "object") state = parsed;
+	} catch {}
+	// Same scheme as hashPassword() in lib/index.js: salt + sha256(salt, password).
+	const salt = crypto.randomBytes(16).toString("hex");
+	state.salt = salt;
+	state.passwordHash = crypto.createHash("sha256").update(salt).update(password).digest("hex");
+	state.passwordVersion = (typeof state.passwordVersion === "number" ? state.passwordVersion : 0) + 1;
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, JSON.stringify(state, null, 2) + "\n");
+NODE
+		echo "LAN access enabled with your new password."
+	else
+		echo "Password setup skipped; LAN stays enabled, password unchanged (set it later in Settings > General)."
+	fi
+	unset LAN_PW1 LAN_PW2 DSH_LAN_PASSWORD
+fi
+unset LAN_CHOICE
+
 echo "dsh-LAN installed:"
 echo "  package -> $DEST"
 echo "  patch   -> $PATCH_FILE"
