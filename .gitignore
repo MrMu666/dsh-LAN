@@ -27,3 +27,4 @@ History.md
 
 # ---- 本地索引（各机器独立，不入库） ----
 .codegraph/
+.omo/
