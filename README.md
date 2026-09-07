@@ -2,6 +2,8 @@
 
 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Web GUI 的局域网访问插件（带口令的全功能版；**移动端优化官方界面ui，适配竖屏及触控手势**）。
 
+> ⚠️ **版本要求：当前仅支持 DSH `0.1.2-rc.1`（`@deepseek-ai/dsh`）。旧版 DSH 的 API（`dsh-host-apiproxy`、点分式端点）已不再兼容，请先升级 DSH。**
+
 > 🚀 **配合 [DSH-Launcher](https://github.com/MrMu666/DSH-Launcher) 与 [dsh-app](https://github.com/MrMu666/dsh-app) 使用，体验感更好。**
 
 安装后，Web GUI 默认绑定 `0.0.0.0`（所有网卡），并自动放行主机防火墙端口（Windows：Windows Defender 防火墙 Domain + Private；Linux：依次尝试 firewalld / ufw / iptables，无可用防火墙工具时视为无需放行）：
