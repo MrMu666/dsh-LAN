@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DSH 远程访问</title>
+<style>
+html,body{height:100%;margin:0}
+body{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(10,12,16,.96);box-sizing:border-box}
+.card{width:100%;max-width:380px;background:#171a21;border:1px solid #2a2f3a;border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:12px;color:#e6e9ef;font:14px/1.55 -apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;box-sizing:border-box}
+.t{font-size:20px;font-weight:700;text-align:center}
+.s{color:#9aa3b2;font-size:13px;text-align:center;margin-top:-6px}
+input[type=password]{font:inherit;color:inherit;background:#0f1117;border:1px solid #2a2f3a;border-radius:10px;padding:11px 12px;outline:none}
+input[type=password]:focus{border-color:#4c8dff}
+label{display:flex;align-items:center;gap:8px;color:#9aa3b2;font-size:13px}
+button{font:inherit;border:none;border-radius:10px;padding:11px;background:#4c8dff;color:#fff;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.err{color:#e5534b;font-size:13px;min-height:16px;text-align:center}
+</style>
+</head>
+<body>
+<div class="card">
+<div class="t">DSH 远程访问</div>
+<div class="s">输入访问口令后才能查看和使用本页面</div>
+<input id="pw" type="password" placeholder="访问口令" autocomplete="current-password">
+<label><input id="remember" type="checkbox"> 记住口令（仅保存在本机浏览器）</label>
+<button id="go">进入</button>
+<div class="err" id="err"></div>
+</div>
+<script>
+(function () {
+	var KEY_STORAGE = "dsh-lan-key";
+	var COOKIE_NAME = "dsh-lan-key";
+	function storedKey() {
+		return window.localStorage.getItem(KEY_STORAGE) || window.sessionStorage.getItem(KEY_STORAGE) || "";
+	}
+	function setStoredKey(key, remember) {
+		window.localStorage.removeItem(KEY_STORAGE);
+		window.sessionStorage.removeItem(KEY_STORAGE);
+		if (remember) window.localStorage.setItem(KEY_STORAGE, key);
+		else window.sessionStorage.setItem(KEY_STORAGE, key);
+		// Transport cookie for top-level navigations and WebSocket upgrades
+		// (session-scoped; cleared when the browser closes or on lock).
+		document.cookie = COOKIE_NAME + "=" + encodeURIComponent(key) + "; Path=/";
+	}
+	function postUnlock(password) {
+		return window.fetch("/dsh-lan/unlock", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ password: password })
+		}).then(function (r) { return r.json().then(function (d) { return r.ok && d.ok === true; }); }).catch(function () { return false; });
+	}
+	function mint(password) {
+		// Follow redirects (default): mint 302 -> token URL 303 (this hop
+		// mints the DSH cookie) -> / 200. A final 2xx means the whole chain
+		// completed. NOTE: redirect:"manual" must NOT be used here — an
+		// unfollowed 302 never requests the token URL, so no DSH cookie is
+		// ever minted and / would keep answering 401.
+		return window.fetch("/dsh-lan/mint", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ password: password })
+		}).then(function (r) { return r.ok; }).catch(function () { return false; });
+	}
+	var input = document.getElementById("pw");
+	var remember = document.getElementById("remember");
+	var button = document.getElementById("go");
+	var err = document.getElementById("err");
+	function attempt() {
+		var value = input.value;
+		if (!value) { err.textContent = "请输入口令"; return; }
+		button.disabled = true;
+		err.textContent = "";
+		postUnlock(value).then(function (ok) {
+			if (!ok) { err.textContent = "口令错误"; button.disabled = false; input.select(); return; }
+			setStoredKey(value, remember.checked);
+			return mint(value).then(function (minted) {
+				if (minted) window.location.href = "/";
+				else { err.textContent = "登录失败，请重试"; button.disabled = false; }
+			});
+		});
+	}
+	button.addEventListener("click", attempt);
+	input.addEventListener("keydown", function (e) { if (e.key === "Enter") attempt(); });
+	// Silent resume: a remembered key skips the form entirely.
+	var existing = storedKey();
+	if (existing) {
+		button.disabled = true;
+		postUnlock(existing).then(function (ok) {
+			if (!ok) { button.disabled = false; return; }
+			setStoredKey(existing, !!window.localStorage.getItem(KEY_STORAGE));
+			mint(existing).then(function (minted) {
+				if (minted) window.location.href = "/";
+				else button.disabled = false;
+			});
+		});
+	} else {
+		input.focus();
+	}
+})();
+</script>
+</body>
+</html>
