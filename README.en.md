@@ -2,7 +2,7 @@
 
 dsh-LAN — a plugin that brings the [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Web GUI to your local network (password-protected full-featured edition; mobile reuses the official desktop UI with an injected portrait touch adaptation).
 
-> ⚠️ **Version requirement: currently supports DSH `0.1.2-rc.1` (`@deepseek-ai/dsh`) only. Older DSH releases (with `dsh-host-apiproxy` / dotted endpoints) are no longer compatible — please upgrade DSH first.**
+> ⚠️ **Version requirement: DSH `0.1.2-rc.1` (`@deepseek-ai/dsh`) and newer (verified up to `0.1.5-rc.1`). Older DSH releases (with `dsh-host-apiproxy` / dotted endpoints) are no longer compatible — please upgrade DSH first.**
 
 > 🚀 **Pair it with [DSH-Launcher](https://github.com/MrMu666/DSH-Launcher) and [dsh-app](https://github.com/MrMu666/dsh-app) for a better experience.**
 

@@ -2,7 +2,7 @@
 
 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) Web GUI 的局域网访问插件（带口令的全功能版；**移动端优化官方界面ui，适配竖屏及触控手势**）。
 
-> ⚠️ **版本要求：当前仅支持 DSH `0.1.2-rc.1`（`@deepseek-ai/dsh`）。旧版 DSH 的 API（`dsh-host-apiproxy`、点分式端点）已不再兼容，请先升级 DSH。**
+> ⚠️ **版本要求：支持 DSH `0.1.2-rc.1`（`@deepseek-ai/dsh`）及更新版本（已验证至 `0.1.5-rc.1`）。旧版 DSH 的 API（`dsh-host-apiproxy`、点分式端点）已不再兼容，请先升级 DSH。**
 
 > 🚀 **配合 [DSH-Launcher](https://github.com/MrMu666/DSH-Launcher) 与 [dsh-app](https://github.com/MrMu666/dsh-app) 使用，体验感更好。**
 
