@@ -1,0 +1,118 @@
+name: release
+
+# Push a v* tag (or run this workflow by hand against an existing tag) and the
+# matching GitHub Release is created for that tag, using the repository's own
+# built-in GITHUB_TOKEN — no personal access token involved.
+#
+# IMPORTANT — bootstrap rule: GitHub only dispatches tag events to a workflow
+# file that ALREADY EXISTS ON THE DEFAULT BRANCH. A tag pushed before this file
+# landed on main therefore never fires this run and stays tag-only (that is why
+# v1.0.0 / v1.2.0 / v1.3.1 are tags without releases). For those, use
+# Actions → release → Run workflow and type the tag name.
+#
+# Also: if the repository has Actions disabled, the run will not even be queued
+# (Settings → Actions → General → Allow all actions).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish a release for (e.g. v1.3.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Guard against a duplicate release
+        id: guard
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release for $TAG already exists — nothing to do"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create the release
+        if: steps.guard.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          # Release notes come from the tagged range's commits, split into the
+          # sections this project uses (Features / Fixes / Docs / Chore …) by the
+          # repo's conventional-commit prefixes. `git tag --sort=-v:refname`
+          # finds the previous version tag in reachable history.
+          PREV="$(git tag --sort=-v:refname | grep -vx "$TAG" | head -n 1 || true)"
+          if [ -n "$PREV" ]; then
+            # Dereference the annotated tag to its commit: `git log prev..cur` on
+            # the tag NAME would also drop commits made before the annotated tag
+            # object was written (docs/chore commits landed after the released
+            # commit on the same history line).
+            RANGE="$(git rev-list -n 1 "$PREV^{commit}")..$TAG"
+          else
+            RANGE="$TAG"
+          fi
+          echo "note range: $RANGE"
+
+          {
+            echo "## $TAG"
+            echo
+            if [ -n "$PREV" ]; then
+              echo "从 [$PREV](https://github.com/$GITHUB_REPOSITORY/releases/tag/$PREV) 起的变更："
+              echo
+            fi
+            for section in "feat:Features" "fix:Fixes" "docs:Docs" "perf:Performance" "refactor:Refactor" "chore:Chore" "test:Tests" "ci:CI" "build:Build"; do
+              type="${section%%:*}"
+              title="${section##*:}"
+              body="$(git log --no-merges --pretty=format:'- %s' "$RANGE" --grep="^$type" 2>/dev/null || true)"
+              if [ -n "$body" ]; then
+                echo "### $title"
+                echo "$body"
+                echo
+              fi
+            done
+            other="$(git log --no-merges --pretty=format:'- %s' "$RANGE" --invert-grep --grep='^feat' --grep='^fix' --grep='^docs' --grep='^perf' --grep='^refactor' --grep='^chore' --grep='^test' --grep='^ci' --grep='^build' 2>/dev/null || true)"
+            if [ -n "$other" ]; then
+              echo "### Other"
+              echo "$other"
+              echo
+            fi
+            if [ -n "$PREV" ]; then
+              echo "---"
+              echo "对比：[\`$PREV...$TAG\`](https://github.com/$GITHUB_REPOSITORY/compare/$PREV...$TAG)"
+            fi
+          } > NOTES.md
+
+          PRERELEASE_FLAG=""
+          case "$TAG" in
+            *-*) PRERELEASE_FLAG="--prerelease" ;;
+          esac
+
+          gh release create "$TAG" \
+            --title "${TAG#v}" \
+            --notes-file NOTES.md \
+            --verify-tag \
+            $PRERELEASE_FLAG
+
+          echo "created: $(gh release view "$TAG" --json url --jq .url)"
