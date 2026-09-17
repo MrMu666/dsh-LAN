@@ -41,7 +41,7 @@ Copy-Item "$src\package.json"  "$dst\package.json"  -Force
 # 逐个 Get-FileHash 比对，确认 parity
 ```
 
-- **只改 `lib/client.js`（浏览器半边）→ 不需要重启 `dsh web`**：服务端按内容哈希重新广告 bundle rev（`/plugins/??dsh-LAN/client.js&rev=<12位>`），刷新浏览器即拿到新字节。可用 `Invoke-WebRequest http://127.0.0.1:3080/` 抓 HTML，确认 `dsh-LAN` 那行的 `rev` 变了、并在新 URL 的响应里搜到你的新标识符。
+- **只改 `lib/client.js`（浏览器半边）→ 不需要重启 `dsh web`**：服务端对 bundle 是**启动时读一次并缓存**（`client-modules.initialBundleSnapshot`），只有 `client-hmr` 每 500ms 的 stat 轮询发现 `lib/client.js` 变化后调 `rebuilt(id)` 才会重读并重算 rev。所以改完要等一下，**用 `/plugins/events`（SSE）里图帧的 `"id":"dsh-LAN","rev":…` 核对**服务端真正在广告的 rev；HTML 里的 `rev` 是启动时定型的，可能是旧值，别只信它。确认后在**新标签页/刷新**里验证（bundle 响应是 `immutable` 长缓存，旧文档内的 URL 不会自己换新字节）。
 - **改了 `lib/index.js`（node 半边）→ 必须重启 `dsh web`**：node 半边在进程内存里，热加载只重载补丁层。**注意：本机 `dsh web` 进程承载着当前会话，不要随手杀它**（会掐断自己），先和用户确认。
 - `package.json` 里 `dsh.client.inject` 的改动属于启动时组装的 manifest 元数据，下次启动 `dsh web` 才反映到 HTML 的 `inject` 列表；不影响运行时行为（运行时等待哪些服务由 `lib/client.js` 的 `exports.inject` 决定）。
 - 版本号：**改任何行为都顺手升 `package.json.version`**（本项目按 1.x.y 走）。
@@ -164,6 +164,15 @@ Copy-Item "$src\package.json"  "$dst\package.json"  -Force
 ---
 
 ## 7. 历史修复（防回归）
+
+### 1.3.3 — 移动端 composer：权限/模型按钮与附件按钮同排（原为上下两行）
+
+- 现象：竖屏手机上权限按钮与模型选择按钮上下两行，模型那行被推到右侧。
+- 官方原始布局（`@deepseek-ai/dsh-client-ui-conversation` 的 `InputBar.module.css`）：`.uV2eYG_row{flex-wrap:wrap;justify-content:space-between}`、`.uV2eYG_trailing{flex:none;gap:12px;margin-left:auto}` —— 本来就是「一行放不下的流式换行」，**官方不是固定两行**。
+- 根因（全部在本插件 v52 的移动端 CSS）：`_trailing{flex-basis:100%}` 强制它独占一行造成「堆叠」；它还被 `padding-left:38px` 缩进；`_row` 保持官方 `space-between`，而发送按钮已被绝对定位移出流，行内只剩 `_tools`/`_trailing` 两项，空间全被推到两者之间 → 模型按钮贴右侧。
+- 修复（v79）：`_trailing` 去掉 `flex-basis`/左侧 38px 缩进（行 `column-gap:10px` 自然让它对齐到权限按钮的 38px 处）、`margin-left:0` 抵消官方 `margin-left:auto`、`min-width:0`+`overflow:hidden` 让长标签省略；`_row` 改 `justify-content:flex-start` + `flex-wrap:nowrap`（实测 320px 会换行，故用 nowrap 保证单行）；模型触发器与权限触发器统一 12px/24px。
+- 实测（390/360/320 三种竖屏）：附件 x=24、权限 x=62、模型 x=116，三者垂直居中同排，模型标签不截断（137px 标签）、不压发送按钮（右缘 303 < 320 处发送左缘），控制台 0 错误。
+- 教训：**bundle 改了不等于浏览器拿到了**。服务端缓存 bundle，需等 `client-hmr` stat 轮询重哈希；期间用 `/plugins/events` 的图帧核对 rev，且在**新文档**里验证——否则会拿着旧 CSS 的几何得出错误结论（本次就先踩了一次）。
 
 ### 1.3.1 — 「新工作区目录选择界面不断刷新，无法选目录」
 
