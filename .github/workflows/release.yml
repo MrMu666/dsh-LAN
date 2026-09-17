@@ -82,7 +82,7 @@ jobs:
               echo "从 [$PREV](https://github.com/$GITHUB_REPOSITORY/releases/tag/$PREV) 起的变更："
               echo
             fi
-            for section in "feat:Features" "fix:Fixes" "docs:Docs" "perf:Performance" "refactor:Refactor" "chore:Chore" "test:Tests" "ci:CI" "build:Build"; do
+            for section in "feat:Features" "fix:Fixes" "docs:Docs" "perf:Performance" "refactor:Refactor" "release:Release" "chore:Chore" "test:Tests" "ci:CI" "build:Build"; do
               type="${section%%:*}"
               title="${section##*:}"
               body="$(git log --no-merges --pretty=format:'- %s' "$RANGE" --grep="^$type" 2>/dev/null || true)"
@@ -92,7 +92,7 @@ jobs:
                 echo
               fi
             done
-            other="$(git log --no-merges --pretty=format:'- %s' "$RANGE" --invert-grep --grep='^feat' --grep='^fix' --grep='^docs' --grep='^perf' --grep='^refactor' --grep='^chore' --grep='^test' --grep='^ci' --grep='^build' 2>/dev/null || true)"
+            other="$(git log --no-merges --pretty=format:'- %s' "$RANGE" --invert-grep --grep='^feat' --grep='^fix' --grep='^docs' --grep='^perf' --grep='^refactor' --grep='^release' --grep='^chore' --grep='^test' --grep='^ci' --grep='^build' 2>/dev/null || true)"
             if [ -n "$other" ]; then
               echo "### Other"
               echo "$other"
