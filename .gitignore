@@ -22,8 +22,9 @@ desktop.ini
 *.orig
 
 # ---- 本地修改记录（各机器独立，不入库） ----
-Agents.md
 History.md
+
+# AGENTS.md 是仓库契约的一部分，随代码入库（2026-02 起取消忽略）
 
 # ---- 本地索引（各机器独立，不入库） ----
 .codegraph/

@@ -1,0 +1,173 @@
+# AGENTS.md — dsh-LAN 维护指南
+
+给后续修改本项目的 AI/开发者：先读完本文件再动代码。这里记录的是**踩过的坑、必须遵守的契约、以及验证方法**，不是项目介绍（介绍见 `README.md`）。
+
+---
+
+## 1. 项目定位与文件地图
+
+dsh-LAN 是 DeepSeek Harness（DSH）Web GUI 的局域网访问插件，双半边结构：
+
+```
+lib/index.js      node 半边（host 平面）：0.0.0.0 绑定、防火墙规则、/lanapi 口令代理、/dsh-lan/status|configure|unlock
+lib/client.js     浏览器半边：登录门、移动端触控适配、设置页「局域网访问」卡片、侧栏锁定按钮、工作区目录选择器（影子）
+lib/landing.html  门后落地页
+cordis.patch.yml  bundle 安装路径用的补丁（bind host + 插件行）
+install.ps1 / install.sh       补丁路径安装：拷包 + 写 profile 补丁块
+uninstall.ps1 / uninstall.sh   反向操作
+README.md / README.en.md       面向用户；**不放更新记录**
+```
+
+- `package.json` 的 `dsh.client.platform = "web"`、`dsh.client.inject` 决定客户端半边被谁加载、按什么顺序加载；`type: module`。
+- `lib/client.js` 的形态是 DSH 客户端模块约定：整体包在 `window.__ModuleLoader__.load({ id, factory: (require) => { ... exports.apply / exports.inject } })` 里。**不要**改成 ESM、也不要引入打包器产物。
+
+---
+
+## 2. 两条安装路径（选一条，绝不混用）
+
+| 路径 | 命令 | 落地位置 | 生效方式 |
+|---|---|---|---|
+| 补丁路径（默认，本项目当前就是这么装的） | `install.ps1` / `install.sh` | `<DSH_HOME>/profiles/node_modules/dsh-LAN` + 往 `profiles/web/cordis.patch.yml` 写安装块 | profile 补丁热加载；client 半边刷新浏览器即生效 |
+| bundle 路径 | `dsh plugin --profile web add link:<本目录>` | 依赖包管理 | 需重启 `dsh web` |
+
+**两条路径同时使用会冲突**（重复的 `webserver` override 与重复的 `dsh-lan` 行）。本机当前用的是补丁路径，安装块已在 `%USERPROFILE%\.dsh\profiles\web\cordis.patch.yml`，**不要再跑 install 脚本**，直接同步文件即可。
+
+### 本机更新流程（改完代码）
+
+```powershell
+$src='D:\DeepSeek\dsh-LAN'; $dst='C:\Users\MyBook\.dsh\profiles\node_modules\dsh-LAN'
+Copy-Item "$src\lib\client.js" "$dst\lib\client.js" -Force
+Copy-Item "$src\package.json"  "$dst\package.json"  -Force
+# 逐个 Get-FileHash 比对，确认 parity
+```
+
+- **只改 `lib/client.js`（浏览器半边）→ 不需要重启 `dsh web`**：服务端按内容哈希重新广告 bundle rev（`/plugins/??dsh-LAN/client.js&rev=<12位>`），刷新浏览器即拿到新字节。可用 `Invoke-WebRequest http://127.0.0.1:3080/` 抓 HTML，确认 `dsh-LAN` 那行的 `rev` 变了、并在新 URL 的响应里搜到你的新标识符。
+- **改了 `lib/index.js`（node 半边）→ 必须重启 `dsh web`**：node 半边在进程内存里，热加载只重载补丁层。**注意：本机 `dsh web` 进程承载着当前会话，不要随手杀它**（会掐断自己），先和用户确认。
+- `package.json` 里 `dsh.client.inject` 的改动属于启动时组装的 manifest 元数据，下次启动 `dsh web` 才反映到 HTML 的 `inject` 列表；不影响运行时行为（运行时等待哪些服务由 `lib/client.js` 的 `exports.inject` 决定）。
+- 版本号：**改任何行为都顺手升 `package.json.version`**（本项目按 1.x.y 走）。
+
+---
+
+## 3. 客户端半边必须知道的运行时事实（0.1.5-rc.1 实测）
+
+### 3.1 服务名 ≠ 包名
+
+`exports.inject` 里写的是**服务名**，不是包名。写包名会让 fiber 永远 pending，整个客户端半边静默不加载。HTML manifest 里的 `inject: [...]` 才是包名列表（由 `dsh.client.inject` 生成）。
+
+当前 `exports.inject`：
+
+```js
+["slots", "locale", "connection", "workspaces", "uiWorkspace", "layout", "settingsScope"]
+```
+
+- `settingsScope` 在当前版本无人 `provide`；保留它意味着 fiber 会等这个服务。**不要**因为「看起来没人提供」就删掉，删之前先确认 `lanHostMode()` 调用链是否还依赖它。
+- 新增服务依赖时**同时**改两处：`exports.inject`（服务名，运行时真正等待）与 `package.json` 的 `dsh.client.inject`（包名，保证加载序）。
+
+### 3.2 目录能力在 `uiWorkspace`，不在 `workspaces`
+
+这是本项目的**头号历史 bug**，务必记住：
+
+| 服务名 | 提供者 | 能力 |
+|---|---|---|
+| `uiWorkspace` | `@deepseek-ai/dsh-client-ui-workspace`（`super(ctx,"uiWorkspace")`） | `listDirectory(path?, signal?)` / `createDirectory(path,name)` / `pickDirectory()` / 会话与工作区导航 |
+| `workspaces` | `@deepseek-ai/dsh-api-workspace-controller`（`super(ctx,"workspaces")`） | 只有 `create / rename / delete / insertBefore / archiveSession / insertSessionBefore` |
+| `slots` | `@deepseek-ai/dsh-client-ui-renderer` 的 SlotRegistry | 插槽注册/查询/订阅 |
+| `connection` | `@deepseek-ai/dsh-client-connection` | `connection.api.postJson(...)`、`connection/reset` 事件 |
+
+官方 `dsh-client-ui-directory-picker-browse` 注入的就是 `uiWorkspace`。**任何目录枚举/新建目录调用都必须走 `uiWorkspace`**，`workspaces` 只能作为旧版回退。
+
+### 3.3 插槽（slot）机制要点
+
+- `single` 类插槽**同一 priority 只能有一个注册**，第二个注册会 **throw** 并让那个插件的 apply 失败；不同 priority 可共存，`priority` **升序取第一个未退位者渲染（lowest renders）**。
+- 本插件用 `priority: -1000` + `registrant: "dsh-LAN"` 影子覆盖官方选择器（官方在 0），覆盖两个洞：`conversation.hero.workspace.directoryFlow` 与 `sidebar.workspaces.directoryFlow`。**v71 起本机 loopback 也覆盖**。
+- entry 的注入面**按 entry 身份缓存**：同一次注册内 `props.listDirectory` / `props.t` 引用稳定，`useEffect` 依赖数组不会因父组件重渲染而抖动。真正的抖动来源只有「entry 被销毁重建」。
+- 渲染期抛异常 → 错误边界 `reportEntryError(..., { abdicate: true })` → **该 entry 从 cell 退位**（不再渲染）→ 若看护守卫只看「弹窗在不在 DOM 里」，它会把 entry 重新注册 → 崩溃循环 ⇒ 用户看到「界面不断刷新」。**这是 1.3.1 修复的机制，写新代码时不要再制造同样形态。**
+- `document.querySelector(".dshLanP_overlay") !== null` 只能证明「上一帧渲染成功」，不能证明「本次渲染不会崩」。看护必须另有崩溃退避（见 `pickerHealth` 与 `PICKER_SEAT_STABLE_MS`）。
+
+### 3.4 `lib/client.js` 的结构性约束
+
+- 所有 `props.listDirectory(...)` 调用**必须**走 `callListDirectory()`：它把「方法不存在」这类同步 TypeError 转成 rejected promise，避免在 render 阶段（children 是急切构造的）炸掉整个 slot entry。加新调用点时照抄。
+- 移动端适配是**纯 DOM/CSS 注入**（`mobileAdapt`），只依赖官方 class 名的哈希后缀（`[class$="_frame"]` 这类选择器）。官方换 hash 前缀不影响它，但**改语义名会**；改动前先确认官方对应包的 class 名。
+- `installLanFetchReroute()` 包了全局 `window.fetch`，`wrapApi()` 包了 `connection.api.postJson`；两者都有 `__dshLanWrapped` / `lanFetchWrapped` 幂等标记。新增网络调用不要绕过 `isLoopback()` 判断（本机必须走原生路径）。
+
+---
+
+## 4. 修改后的验证方法（必做）
+
+不要只靠读代码。用无头 Chrome + CDP 打真实 GUI（只读：打开弹窗 → 观察 → Esc 取消，**绝不点「打开」按钮**，那会真的创建工作区）：
+
+1. 起无头浏览器：`chrome.exe --headless=new --remote-debugging-port=9222 --user-data-dir=<临时目录> about:blank`，用 `http://127.0.0.1:9222/json/new?<url>` + Node 内置 `WebSocket`（Node ≥22）走 CDP。
+2. 必查项：
+   - `Runtime.enable` 收 `Runtime.consoleAPICalled` / `exceptionThrown` → **控制台错误必须为 0**；
+   - 每 50ms 采样 `.dshLanP_overlay`，统计**挂载次数**：稳定应为 1（修复前是每秒 1 次）；
+   - 采样弹窗内容：`.dshLanP_entry` 条目数、`.dshLanP_crumb` 面包屑数、盘符 `<select>` 选项（Windows 上应含 `C:\|D:\|…`）、`.dshLanP_err` 必须为空；
+   - 点一个条目下钻，面包屑应 +1 级；
+   - Esc 取消 → 再点「添加工作区」→ 应能再次正常打开，且仍只挂载 1 次；
+   - `Network.enable` 观察 `POST /api/directoryPicker/list` 正常返回（LAN 设备上会经 `/lanapi` 代理）。
+3. 收尾：停掉无头 Chrome 进程、删临时 profile 与探针脚本，别留在工作区里。
+
+**禁止**：为了让弹窗「看起来正常」而让探针点击「打开」按钮（会落盘创建真实工作区）；在用户的真实浏览器里做写操作。
+
+---
+
+## 5. 常见反模式（出现即回退）
+
+- 用 `ctx.workspaces.listDirectory` / `ctx.workspaces.createDirectory`（1.3.1 的根因）。
+- 把 `exports.inject` 写成包名。
+- 在 `single` 插槽的同一 priority 上注册第二个 entry。
+- 没有退避的座位看护（裸跑 `setInterval(seatIfNeeded, 1000)`）。
+- 直接 `props.listDirectory(...)` 而不加 `callListDirectory()` 兜底。
+- 手动跑 `install.ps1` / `uninstall.ps1` 做日常更新（会重复写补丁块 / 动防火墙）。
+- 在 README 里堆更新记录或维护须知（约定：README 只作为用户文档；变更与踩坑写进本文件第 7 节或 commit）。
+
+---
+
+## 5.1 发布（tag 与 GitHub Release）
+
+`.github/workflows/release.yml` 负责「push `v*` tag → 自动建 GitHub Release」，notes 由 tag 区间内的 conventional commit 前缀分节生成（Features/Fixes/Docs/…，与 v1.3.0 的格式一致），用仓库内置 `GITHUB_TOKEN`，不需要 PAT。
+
+- **硬约束**：GitHub 只把 tag 事件派发给「**已存在于默认分支**」的工作流文件。因此该文件落到 `main` 之前推的 tag 永远不会触发——这正是 `v1.0.0` / `v1.2.0` / `v1.3.1` 只有 tag、没有 release 的原因。
+- 补历史的 tag：Actions → release → Run workflow，填 tag 名（`workflow_dispatch` 路径）。
+- **SSH 密钥只做 git 传输**；Release 对象是 REST API 资源，SSH 创建不了，别在这上面绕。本机也没装 `gh`，没有 PAT/env token。
+- 本机 22 端口被封，`~/.ssh/config` 里用 `Host github.com → HostName ssh.github.com / Port 443` 映射；直接连 `git@github.com:443` 会因 443 是 HTTPS 端口而在 `kex_exchange_identification` 被拒。
+
+---
+
+## 6. 与 dsh-app 的边界：口令页只认「顶层文档」
+
+**这是第二个踩过的坑。它不是本插件代码的缺陷，但每次排查都会撞上，必须记住。**
+
+### 6.1 机制（本机 0.1.5-rc.1 实测）
+
+- 局域网模式下，**没有凭据的非 loopback 客户端**请求 `GET /` → **302 `/dsh-lan/`**（`lib/index.js:495-510`）；要真正拿到 SPA，请求必须带上 **DSH 自己的会话 cookie**（即 `hasLanCookie(req)` 那条分支）。
+- 那个 DSH 会话 cookie 是 **`HttpOnly; SameSite=Strict`**，由一次**隐藏 fetch 的重定向链**种下（`/dsh-lan/mint` 302 → token URL → `/`；见 `lib/index.js:743-751`，`lib/landing.html:53-64` 有注释说明必须跟随跳转）。
+- 因此：**只要承载页面的环境把 GUI 当作「跨站第三方内容」，这个 cookie 就会被现代 WebView / 浏览器的跟踪防护丢弃或分区**，链路永远走不完。
+- 后果被 `lib/landing.html:86-96` 的**静默续登**放大：落地页只要在 storage 里看到 `dsh-lan-key`，就立刻 `postUnlock` → `mint` → `window.location.href = "/"`；当 cookie 落不下去时 `/` 又 302 回落地页，落地页又静默续登 → **无限重定向**，用户看到「口令页不断闪烁、无法输入」。
+
+### 6.2 判定口径与责任划分
+
+| 现象 | 结论 |
+|---|---|
+| 移动端/桌面浏览器正常，**dsh-app（Tauri + iframe）闪烁** | **环境问题（dsh-app 侧）**：同一份插件、同一个服务端，差异只在承载上下文——iframe 里 GUI 是跨站第三方，登录 Cookie 落不下去。 |
+| 顶层浏览器直接开 `http://<IP>:3080` | 正常：顶层文档 = 第一方，`SameSite=Strict` 无障碍。 |
+| 地址填 `127.0.0.1` / `localhost` | **根本不走口令链路**：客户端 `isLoopback()` 为真，服务端 `isLocalRequest()` 也全放行（无口令、无 token）。此时任何异常都与口令页无关，别往这条线查。 |
+
+- **本插件侧该改的（若将来再动）**：`lib/landing.html` 的静默续登不该「有 key 就跳」，应在跳转前确认「这次访问真能进主界面」；连续失败即停止自动跳转，停在表单并提示「凭据无法在本浏览器保存」。这样环境问题最多是「每次都要输口令」，而不是「页面无法操作」。
+- **dsh-app 侧解法（已在其仓库实施）**：不要用 iframe 承载 GUI，改为**每个地址一个独立顶层窗口**（Tauri `WebviewWindow`），顶层文档 = 第一方，口令只需输入一次。
+
+### 6.3 复现 / 排查手法（只读，勿在用户实例上做写操作）
+
+- 无头 Chrome + CDP：父页面从 `http://localhost:3099`（与目标不同 host）内嵌 `http://<LAN-IP>:3080`，即构造出「跨站 iframe」形态；用 `Target.attachToTarget` 挂到 iframe 的 target 上执行表达式，逐秒采样其 `location.href`、是否存在 `input[type=password]`、`document.cookie`。
+- **不要**为了「跑通」而猜或试口令：错误口令下 `POST /dsh-lan/mint` 只会 403（足够确认链路形态）；`dsh-lan-key` 也无法用 JS 伪造成功路径（校验在服务端）。
+- 收尾：停掉无头 Chrome、删临时 profile 与探针脚本。
+
+---
+
+## 7. 历史修复（防回归）
+
+### 1.3.1 — 「新工作区目录选择界面不断刷新，无法选目录」
+
+- 现象：点「添加工作区」后弹窗每秒闪一次、内容为空、无法选择。
+- 根因：`pickerInjected` 从 `ctx.workspaces` 取目录能力 → `TypeError: ctx.workspaces.listDirectory is not a function` → slot entry 被错误边界判退位 → 看护每秒重新注册 → 每秒重挂载。
+- 修复：改为注入 `uiWorkspace`（保留 `workspaces` 旧版回退）；`exports.inject` 与 `dsh.client.inject` 双补声明；`callListDirectory()` 兜底；看护加崩溃退避（5s 内掉座 → 1s/2s/4s… 上限 60s，`connection/reset` 重置）。
+- 实测：修复前 6 秒内挂载 6 次、控制台反复报错；修复后挂载 1 次、61 条目 + 3 盘符、可下钻、Esc 后可重开、控制台 0 错误。
