@@ -165,6 +165,17 @@ Copy-Item "$src\package.json"  "$dst\package.json"  -Force
 
 ## 7. 历史修复（防回归）
 
+### 1.3.6 — 非本机隐藏主机应用启动器；移动端隐藏 session 日志；底部统计居中
+
+- **需求 1（非本机隐藏右上角「文件资源管理器 / VS Code / Git Bash」下拉框）**：
+  - 那个下拉框是 `@deepseek-ai/dsh-client-ui-open-in-app`，类名 `CAgGvG_split`，注册在**与 session 日志同一个插槽** `conversation.session.header.utilities`（即 `_headerUtilities` 容器）。
+  - 判定来源：`/dsh-lan/status` 的 `loopback` 字段（服务端 `isLoopback(req)`，按 **Host 头**算，正好等价于「这个页面是不是从 127.0.0.1 打开的」）。`syncNonLocalPosture()` 拿到后给 `<body>` 加 `dsh-lan-nonlocal`。
+  - **坑（本次踩到）**：这条规则**不能**放进 `mobileAdapt` 的 CSS —— 那段样式表只在竖屏手机模式下注入（`isMobilePortrait()` 为真），而需求恰恰是桌面局域网场景。实测 1280px 下 `mobile-adapt.css` 根本不存在（`tagPresent:false`），规则写了也永远不生效。改为在 `markNonLocalPosture()` 里注入独立样式表 `dsh-LAN/nonlocal-header.css`。
+  - 选择器用 `body.dsh-lan-nonlocal [class$="_headerUtilities"] [class$="_split"]`：官方是 `.CAgGvG_split{display:inline-flex}`，靠多一个 `body.` 类提高特异性压过它（在 `mobileAdapt` 之后注入、但顺序不可靠，别只靠顺序）。
+- **需求 2（移动端隐藏 session 日志下载）**：本来就已满足——`web shell` 的 `_headerUtilities{display:none}` 规则在竖屏下隐藏整个 utilities 簇，实测该容器宽为 0，里面的 session 日志按钮（`nL4_yW_moreButton`）一并消失。**桌面端不受影响，仍保留**。
+- **需求 3（移动端底部「N 轮 M 步」居中）**：官方 `StatsPills` 的根类 `bOPqQW_root` 本来就是 `justify-content:center`（flex 行），是我们在 v56 把它覆盖成 `text-align:left` 才变左对齐。v82 改回 `text-align:center`。实测移动端计算值 `text-align:center`、`justify-content:center`、字号 10px、内边距 0，且内容盒居中；桌面端不受影响（仍是官方 13px / 32px 内边距）。
+- **类名方向提醒（重要）**：官方插件 bundle 的 CSS Module 类名是**哈希在前**（`CAgGvG_split`、`nL4_yW_moreButton`、`uV2eYG_headerUtilities`），所以 `[class$="_split"]` 这类后缀选择器能匹配；而 **web shell 自己**的 Vite 构建是 `_split_17p4l_17`（哈希在后），**后缀选择器匹配不到它**。写探针时要用官方 bundle 的类名，否则会测到 shell 自己的同名元素而得出错误结论（本次先踩了一次）。
+
 ### 1.3.5 — 移动端 composer：模型按钮与上下文圆环之间留出真实间隙
 
 - 现象：1.3.4 后模型名仍然「过长」，与上下文圆环挤在一起。
