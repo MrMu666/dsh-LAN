@@ -165,6 +165,18 @@ Copy-Item "$src\package.json"  "$dst\package.json"  -Force
 
 ## 7. 历史修复（防回归）
 
+### 1.3.7 — 三点「更多操作」（下载 session 日志）改为按「非本机」隐藏
+
+- 用户反馈：1.3.6 之后移动端**仍能看到**右上角那个三点按钮，点开是「下载 session 日志」。
+- 它是 `@deepseek-ai/dsh-session-log-export` 的 `SessionLogDownloadHeaderAction`：`Menu` 的 anchor 是 `nL4_yW_moreButton`（`aria-haspopup="menu"`、`aria-label` 取自 `header.more`「更多操作」、图标 `IconEllipsisOutline16`）。源码第 274 行确认它注册进 `conversation.session.header.utilities` —— **正是 `_headerUtilities` 内部**。
+- 所以 1.3.6 之前那条 `[class$="_headerUtilities"]{display:none}` 本来就能藏它（该规则自 v47–v62 的 `819ecdd` 起一直在，且实测确认已随 bundle 下发）。用户仍能看到 ⇒ **实机当时没进入移动端适配状态**：`isMobilePortrait()` 要求竖屏 + 粗指针 + 宽 <1100，横屏/平板/更宽视口都不生效。
+- 修复：把这条也做进「非本机」样式表（`dsh-LAN/nonlocal-header.css`），**不再依赖移动端适配状态**：
+  - `body.dsh-lan-nonlocal [class$="_headerUtilities"] [class$="_moreButton"]`（主判据，实测全局只匹配这 1 个元素）；
+  - 再加一条按**角色**兜底的 `... [class$="_trigger"]:has(svg):where([aria-haspopup="menu"])`，防模块哈希前缀变化。
+  - 理由：局域网浏览器把 session 日志下到「错误的机器磁盘」上本来就没意义。
+- 实测（构造官方真实类名与结构）：非本机下移动 390 **与桌面 1280** 均 `display:none`，启动器同时隐藏，无关控件不受影响，控制台 0 错误。
+- 教训：**"父容器被 display:none" 不等于"子元素一定看不见"要分开断言**；更要紧的是——依赖 `mobileAdapt` 的规则只在那一整套状态成立时生效，凡是"移动端看不到 X"的需求，先确认实机是否真的进入了该状态，必要时改挂到与视口无关的判定上。
+
 ### 1.3.6 — 非本机隐藏主机应用启动器；移动端隐藏 session 日志；底部统计居中
 
 - **需求 1（非本机隐藏右上角「文件资源管理器 / VS Code / Git Bash」下拉框）**：
